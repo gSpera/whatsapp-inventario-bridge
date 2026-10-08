@@ -21,7 +21,8 @@ import (
 var qrCodeRegex *regexp.Regexp = regexp.MustCompile(`(?P<prefix>\D*)(?P<orderID>\d+)(?P<suffix>\D*)`)
 
 type ServerInterface interface {
-	DeliverOrder(orderID int) (order, companyName, city string, err error)
+	OrderInfo(orderID int) (order, companyName, city string, err error)
+	DeliverOrder(orderID int) error
 }
 
 type WhatsappAPI struct {

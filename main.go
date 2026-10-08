@@ -44,6 +44,23 @@ func main() {
 	var s Server
 	s.Log = log
 	s.Inventario = cfg.Inventario
+	s.AuthTokens = make(map[string]AuthToken)
+	log.Info("Logging in")
+	i := Inventario{
+		Name:     "TEST",
+		Username: "gs",
+		Password: "gs",
+		Addr:     "http://localhost:8080",
+	}
+	reveal.Dump(s)
+	_ = i
+	err = s.updateTokens()
+	if err != nil {
+		panic(err)
+	}
+	reveal.Dump(s)
+
+	return
 	s.Whatsapp = NewWhatsappAPI(log.With("what", "whatsapp"), cfg.WhatsAppWebhookVerifyCode, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID)
 	http.Handle("/", s.Whatsapp)
 

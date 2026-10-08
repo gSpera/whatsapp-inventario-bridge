@@ -16,13 +16,3 @@ type Config struct {
 	// List of Inventario to bridge
 	Inventario []Inventario `json:"inventario"`
 }
-
-// Inventario describes a service to bridge
-type Inventario struct {
-	// Identification name
-	Name string `json:"name"`
-
-	Addr   string `json:"addr"`
-	Prefix string `json:"prefix"`
-	Suffix string `json:"suffix"`
-}
