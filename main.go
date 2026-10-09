@@ -22,7 +22,7 @@ func main() {
 	var cfg Config
 	// Default configuration
 	cfg.ListenAddr = ":8081"
-	cfg.JwtStore = "jwt-store.json"
+	cfg.AuthTokenStorePath = "authtokens.json"
 	err = json.Unmarshal(cfgBytes, &cfg)
 	if err != nil {
 		log.Error("Cannot parse configuration", "err", err)
@@ -45,26 +45,27 @@ func main() {
 	s.Log = log
 	s.Inventario = cfg.Inventario
 	s.AuthTokens = make(map[string]AuthToken)
-	log.Info("Logging in")
-	i := Inventario{
-		Name:     "TEST",
-		Username: "gs",
-		Password: "gs",
-		Addr:     "http://localhost:8080",
+	s.AuthTokenFilePath = cfg.AuthTokenStorePath
+	log.Info("Loading auth tokens")
+	authTokensBytes, err := os.ReadFile(s.AuthTokenFilePath)
+	if err != nil {
+		log.Warn("Reading auth tokens", "file-name", s.AuthTokenFilePath, "err", err)
 	}
-	reveal.Dump(s)
-	_ = i
+	err = json.Unmarshal(authTokensBytes, &s.AuthTokens)
+	if err != nil {
+		log.Error("Decoding auth tokens", "file-name", s.AuthTokenFilePath, "err", err)
+	}
+
+	log.Info("Logging in")
 	err = s.updateTokens()
 	if err != nil {
 		panic(err)
 	}
-	reveal.Dump(s)
 
-	return
 	s.Whatsapp = NewWhatsappAPI(log.With("what", "whatsapp"), cfg.WhatsAppWebhookVerifyCode, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID)
 	http.Handle("/", s.Whatsapp)
 
-	log.Info("Starting", "addr", cfg.ListenAddr, "jwt-store", cfg.JwtStore)
+	log.Info("Starting", "addr", cfg.ListenAddr, "authtoken-store", cfg.AuthTokenStorePath)
 	err = http.ListenAndServe(cfg.ListenAddr, nil)
 	if err != nil {
 		log.Error("Error while serving", "err", err)

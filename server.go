@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"time"
 )
 
@@ -17,6 +19,8 @@ type Server struct {
 	Inventario []Inventario
 
 	AuthTokens map[string]AuthToken
+
+	AuthTokenFilePath string
 }
 
 type AuthToken struct {
@@ -25,22 +29,42 @@ type AuthToken struct {
 }
 
 func (s *Server) updateTokens() error {
-	s.Log.Debug("Updating AuthTokens")
+	log := s.Log.With("what", "authtoken-updating")
+	log.Debug("Updating AuthTokens")
 	errs := make([]error, len(s.Inventario))
-	maxAllowedExpire := time.Now().AddDate(0, 0, 7)
+	maxAllowedExpire := time.Now().AddDate(0, 0, 1)
 
+	// Update token if necessary
 	for i, inv := range s.Inventario {
 		// If not AuthToken is found the zero value will be used,
 		// for time.Time this is timestamp 0, which is in the past.
 		authToken, _ := s.AuthTokens[inv.Name]
 
 		if authToken.Expiration.Before(maxAllowedExpire) {
-			s.Log.Info("Updating AuthToken", "name", inv.Name)
+			log.Info("Updating AuthToken", "name", inv.Name)
 			errs[i] = s.updateToken(inv)
+
+			if errs[i] != nil {
+				log.Error("While updating", "name", inv.Name, "err", errs[i])
+			}
 		}
 	}
 
-	return errors.Join(errs...)
+	updateTokensErr := errors.Join(errs...)
+
+	// Store the updated tokens
+	fl, err := os.Create(s.AuthTokenFilePath)
+	if err != nil {
+		return errors.Join(updateTokensErr, fmt.Errorf("cannot open AuthToken store: %w", err))
+	}
+
+	enc := json.NewEncoder(fl)
+	enc.SetIndent("", "\t")
+	err = enc.Encode(s.AuthTokens)
+	if err != nil {
+		return errors.Join(updateTokensErr, fmt.Errorf("cannot encode AuthTokens: %w", err))
+	}
+	return fl.Close()
 }
 
 func (s *Server) updateToken(inv Inventario) error {

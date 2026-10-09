@@ -5,10 +5,11 @@ type Config struct {
 	// Listening address for the WhatsApp Webhook
 	ListenAddr string `json:"listenAddr"`
 	// File path for the authentication tokens
-	JwtStore string `json:"jwtStore"`
+	AuthTokenStorePath string `json:"authTokenFile"`
 	// Enable deeper logging info
 	Debug bool `json:"debug"`
 
+	// Whatsapp secret Tokens
 	WhatsAppToken             string `json:"whatsapp_token"`
 	WhatsAppWebhookVerifyCode string `json:"whatsapp_webhook_verifycode"`
 	WhatsAppPhoneNumberID     string `json:"whatsapp_phonenumber_id"`
