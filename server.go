@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"time"
 )
@@ -32,22 +30,12 @@ func (s *Server) updateTokens() error {
 	log := s.Log.With("what", "authtoken-updating")
 	log.Debug("Updating AuthTokens")
 	errs := make([]error, len(s.Inventario))
-	maxAllowedExpire := time.Now().AddDate(0, 0, 1)
 
 	// Update token if necessary
-	for i, inv := range s.Inventario {
+	for _, inv := range s.Inventario {
 		// If not AuthToken is found the zero value will be used,
 		// for time.Time this is timestamp 0, which is in the past.
-		authToken, _ := s.AuthTokens[inv.Name]
-
-		if authToken.Expiration.Before(maxAllowedExpire) {
-			log.Info("Updating AuthToken", "name", inv.Name)
-			errs[i] = s.updateToken(inv)
-
-			if errs[i] != nil {
-				log.Error("While updating", "name", inv.Name, "err", errs[i])
-			}
-		}
+		s.updateTokenIfNecessary(inv)
 	}
 
 	updateTokensErr := errors.Join(errs...)
@@ -67,45 +55,79 @@ func (s *Server) updateTokens() error {
 	return fl.Close()
 }
 
-func (s *Server) updateToken(inv Inventario) error {
-	s.Log.Debug("Updating token", "inventario-name", inv.Name)
+func (s *Server) updateTokenIfNecessary(inv Inventario) error {
+	authToken, _ := s.AuthTokens[inv.Name]
+	maxAllowedExpire := time.Now().AddDate(0, 0, 1)
 
-	cj, err := cookiejar.New(nil)
-	if err != nil {
-		return fmt.Errorf("cannot create cookie jar: %w", err)
-	}
+	if authToken.Expiration.Before(maxAllowedExpire) {
+		s.Log.Info("Updating AuthToken", "name", inv.Name)
+		authToken, err := inv.updateToken()
 
-	client := http.Client{Jar: cj}
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	resp, err := client.PostForm(inv.Addr+"/login", url.Values{
-		"username": []string{inv.Username},
-		"password": []string{inv.Password},
-	})
-	if err != nil {
-		return fmt.Errorf("cannot POST login, inventario: %s: %w", inv.Name, err)
-	}
-	cookies := resp.Cookies()
-
-	var cookieValue string
-	var cookieExpiration time.Time
-	for _, c := range cookies {
-		if c.Name == "user" {
-			cookieValue = c.Value
-			cookieExpiration = c.Expires
+		if err != nil {
+			s.Log.Error("While updating", "name", inv.Name, "err", err)
+		} else {
+			s.AuthTokens[inv.Name] = authToken
 		}
 	}
 
-	if cookieValue == "" {
-		return fmt.Errorf("cookie not present, are credentials correct??")
+	return nil
+}
+
+func (s *Server) inventarioFromPrefixSuffix(prefix, suffix string) ServerInterface {
+
+	for i, inv := range s.Inventario {
+		if inv.Prefix == prefix && inv.Suffix == suffix {
+			return serverInventario{
+				s:   s,
+				inv: &s.Inventario[i],
+			}
+		}
 	}
 
-	// Update Server AuthToken
-	s.AuthTokens[inv.Name] = AuthToken{
-		Token:      cookieValue,
-		Expiration: cookieExpiration,
+	s.Log.Warn("Requested inventario not found", "prefix", prefix, "suffix", suffix)
+	return nil
+}
+
+type serverInventario struct {
+	s   *Server
+	inv *Inventario
+}
+
+var _ ServerInterface = serverInventario{}
+
+func (s serverInventario) OrderInfo(orderID int) (order, companyName, city string, err error) {
+	url := fmt.Sprintf("%s/api/info-order?id=%d", s.inv.Addr, orderID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		err = fmt.Errorf("cannot create request to inventario: %w", err)
+		return
 	}
 
+	req.AddCookie(&http.Cookie{
+		Name:  "user",
+		Value: s.s.AuthTokens[s.inv.Name].Token,
+	})
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		err = fmt.Errorf("cannot get order info: %w", err)
+		return
+	}
+	var orderInfo struct {
+		Ordine             string `json:"Ordine"`
+		CompanyName        string `json:"CompanyName"`
+		ComuneDestinatione string `json:"ComuneDestinazione"`
+	}
+
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&orderInfo)
+	if err != nil {
+		err = fmt.Errorf("cannot unmarshal response: %w", err)
+		return
+	}
+
+	return orderInfo.Ordine, orderInfo.CompanyName, orderInfo.ComuneDestinatione, nil
+}
+
+func (s serverInventario) DeliverOrder(orderID int) error {
 	return nil
 }

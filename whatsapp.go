@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	_ "image/gif"
@@ -12,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"regexp"
 	"strconv"
 
@@ -26,21 +26,29 @@ type ServerInterface interface {
 }
 
 type WhatsappAPI struct {
-	log             *slog.Logger
-	webhookToken    string
-	phoneNumberID   string
-	client          whatsapp.Client
-	serverInterface ServerInterface
+	log                        *slog.Logger
+	webhookToken               string
+	phoneNumberID              string
+	client                     whatsapp.Client
+	imageFolderPath            string
+	inventarioFromPrefixSuffix func(prefix, suffix string) ServerInterface
 	// allowedPhones   map[string]struct{}
 }
 
-func NewWhatsappAPI(log *slog.Logger, webhookToken string, accessToken string, phoneNumberID string) *WhatsappAPI {
-	return &WhatsappAPI{
-		log:           log,
-		webhookToken:  webhookToken,
-		phoneNumberID: phoneNumberID,
-		client:        *whatsapp.NewClient(accessToken),
+func NewWhatsappAPI(log *slog.Logger, webhookToken string, accessToken string, phoneNumberID string, imageFolderPath string, inventarioFromPrefixSuffix func(prefix, suffix string) ServerInterface) (*WhatsappAPI, error) {
+	err := os.MkdirAll(imageFolderPath, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("cannot create image folder: %w", err)
 	}
+
+	return &WhatsappAPI{
+		log:                        log,
+		webhookToken:               webhookToken,
+		phoneNumberID:              phoneNumberID,
+		client:                     *whatsapp.NewClient(accessToken),
+		imageFolderPath:            imageFolderPath,
+		inventarioFromPrefixSuffix: inventarioFromPrefixSuffix,
+	}, nil
 }
 
 func (wa *WhatsappAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +71,7 @@ func (wa *WhatsappAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		wa.log.Error("Cannot decode body", "err", err, "body", string(body))
 	}
-	wa.log.Debug("Received body", "body", string(body))
+	// wa.log.Debug("Received body", "body", string(body))
 
 	// fmt.Println()
 	// fmt.Println("Body:")
@@ -121,25 +129,26 @@ func (wa *WhatsappAPI) handleMessage(msg whatsapp.WebhookMessage) {
 func (wa *WhatsappAPI) onReceivedImage(msg whatsapp.WebhookMessage) error {
 	log := wa.log.With("msg-id", msg.ID, "image-id", msg.Image.ID)
 
+	// Download image
 	imgReader, err := wa.client.SendGETRequestWithoutBase(msg.Image.URL)
-	// imgReader, err := wa.client.RetrieveMedia(msg.Image.ID)
 	if err != nil {
 		return fmt.Errorf("cannot retrieve image: %w", err)
 	}
 	defer imgReader.Close()
 
-	var buff bytes.Buffer
-	_, err = io.Copy(&buff, imgReader)
+	// Read image
+	imgPath := path.Join(wa.imageFolderPath, msg.ID+".jpg")
+	fl, err := os.Create(imgPath)
 	if err != nil {
-		return fmt.Errorf("cannot copy image: %w", err)
+		return fmt.Errorf("cannot create image file: %w", err)
 	}
-	err = os.WriteFile("image.png", buff.Bytes(), 0644)
+	_, err = io.Copy(fl, imgReader)
 	if err != nil {
 		return fmt.Errorf("cannot write image: %w", err)
 	}
+	fl.Close()
 
-	cmd := exec.Command("ZXingReader", "-bytes", "-1", "image.png")
-	cmd.Stdin = imgReader
+	cmd := exec.Command("ZXingReader", "-bytes", "-1", imgPath)
 	res, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("cannot scan image: %w", err)
@@ -168,16 +177,15 @@ func (wa *WhatsappAPI) onReceivedImage(msg whatsapp.WebhookMessage) error {
 		log.Warn("Invalid qr code, cannot parse order ID", "text", text, "err", err, "prefix", prefix, "orderID", matches[1], "suffix", suffix)
 		return fmt.Errorf("invalid qr code, content: %s: %w", text, err)
 	}
+	log = log.With("order-id", orderID)
 
-	log.Info("Found order", "order-id", orderID, "prefix", prefix, "suffix", suffix)
-	// order, companyName, city, err := wa.serverInterface.DeliverOrder(orderID)
-	// if err != nil {
-	// 	log.Error("Cannot deliver package", "err", err)
-	// 	return fmt.Errorf("cannot deliver package: %w", err)
-	// }
-	order := "ORDINE"
-	companyName := "AZIENDA"
-	city := "CITTA'"
+	log.Info("Found order", "prefix", prefix, "suffix", suffix)
+	si := wa.inventarioFromPrefixSuffix(prefix, suffix)
+	order, companyName, city, err := si.OrderInfo(orderID)
+	if err != nil {
+		log.Error("Cannot get order info", "err", err)
+		return fmt.Errorf("cannot get order info: %w", err)
+	}
 
 	err = wa.client.SendSimpleMessage(wa.phoneNumberID, msg.From, fmt.Sprintf("Consegnato ordine %s con successo\n*%s* %s\nPrefisso: %s\nOrdine: %d\nSuffisso: %s", order, companyName, city, prefix, orderID, suffix))
 	if err != nil {

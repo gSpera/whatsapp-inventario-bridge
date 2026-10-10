@@ -23,6 +23,7 @@ func main() {
 	// Default configuration
 	cfg.ListenAddr = ":8081"
 	cfg.AuthTokenStorePath = "authtokens.json"
+	cfg.ImageFolderPath = "imgs"
 	err = json.Unmarshal(cfgBytes, &cfg)
 	if err != nil {
 		log.Error("Cannot parse configuration", "err", err)
@@ -62,7 +63,11 @@ func main() {
 		panic(err)
 	}
 
-	s.Whatsapp = NewWhatsappAPI(log.With("what", "whatsapp"), cfg.WhatsAppWebhookVerifyCode, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID)
+	s.Whatsapp, err = NewWhatsappAPI(log.With("what", "whatsapp"), cfg.WhatsAppWebhookVerifyCode, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID, cfg.ImageFolderPath, s.inventarioFromPrefixSuffix)
+	if err != nil {
+		log.Error("Creating Whatsapp API", "err", err)
+		os.Exit(1)
+	}
 	http.Handle("/", s.Whatsapp)
 
 	log.Info("Starting", "addr", cfg.ListenAddr, "authtoken-store", cfg.AuthTokenStorePath)

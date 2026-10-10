@@ -9,6 +9,9 @@ type Config struct {
 	// Enable deeper logging info
 	Debug bool `json:"debug"`
 
+	// Path where to store received images
+	ImageFolderPath string `json:"imageFolder"`
+
 	// Whatsapp secret Tokens
 	WhatsAppToken             string `json:"whatsapp_token"`
 	WhatsAppWebhookVerifyCode string `json:"whatsapp_webhook_verifycode"`
