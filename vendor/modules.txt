@@ -1,6 +1,0 @@
-# github.com/agentine/reveal v1.0.0
-## explicit; go 1.21
-github.com/agentine/reveal
-# github.com/gSpera/whatsapp-business-api v0.0.0-20230222223950-c01a0f0225cd
-## explicit; go 1.20
-github.com/gSpera/whatsapp-business-api

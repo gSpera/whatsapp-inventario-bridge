@@ -2,3 +2,5 @@ config.json
 image.png
 authtokens.json
 imgs/
+vendor/
+

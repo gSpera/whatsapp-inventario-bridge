@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -128,6 +130,40 @@ func (s serverInventario) OrderInfo(orderID int) (order, companyName, city strin
 	return orderInfo.Ordine, orderInfo.CompanyName, orderInfo.ComuneDestinatione, nil
 }
 
-func (s serverInventario) DeliverOrder(orderID int) error {
+func (s serverInventario) DeliverOrder(orderID int, note string) error {
+	url := fmt.Sprintf("%s/api/update-order", s.inv.Addr)
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("cannot create request to inventario: %w", err)
+	}
+	req.AddCookie(&http.Cookie{
+		Name:  "user",
+		Value: s.s.AuthTokens[s.inv.Name].Token,
+	})
+
+	// Body
+	requestBody := struct {
+		OrderID int
+		State   int `json:",string"`
+		When    time.Time
+		Note    string
+	}{
+		OrderID: orderID,
+		State:   7, // TODO: Remove hardcoded values
+		When:    time.Now(),
+		Note:    note,
+	}
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return fmt.Errorf("cannot marshal request body: %w", err)
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot get order info: %w", err)
+
+	}
+	_ = resp
 	return nil
 }
