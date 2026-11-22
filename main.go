@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/agentine/reveal"
 )
@@ -57,11 +58,15 @@ func main() {
 		log.Error("Decoding auth tokens", "file-name", s.AuthTokenFilePath, "err", err)
 	}
 
-	log.Info("Logging in")
-	err = s.updateTokens()
-	if err != nil {
-		panic(err)
-	}
+	go func() {
+		for {
+			err = s.updateTokens()
+			if err != nil {
+				panic(err)
+			}
+			time.Sleep(24 * time.Hour)
+		}
+	}()
 
 	s.Whatsapp, err = NewWhatsappAPI(log.With("what", "whatsapp"), cfg.WhatsAppWebhookVerifyCode, cfg.WhatsAppToken, cfg.WhatsAppPhoneNumberID, cfg.ImageFolderPath, s.inventarioFromPrefixSuffix)
 	if err != nil {

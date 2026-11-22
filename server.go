@@ -30,7 +30,7 @@ type AuthToken struct {
 
 func (s *Server) updateTokens() error {
 	log := s.Log.With("what", "authtoken-updating")
-	log.Debug("Updating AuthTokens")
+	log.Info("Updating AuthTokens")
 	errs := make([]error, len(s.Inventario))
 
 	// Update token if necessary
